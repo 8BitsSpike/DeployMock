@@ -8,7 +8,7 @@ WORKDIR /src
 # para coincidir com o que o Usuario.Server.csproj está procurando.
 
 COPY ["Usuario.API/UsuarioAPI.csproj", "Usuario.API/"]
-COPY ["Usuario.DbContext/UsuarioDbContext.csproj", "Usuario.DBContext/"]
+COPY ["Usuario.DbContext/UsuarioDbContext.csproj", "Usuario.DbContext/"]
 COPY ["Usuario.Intf/UsuarioIntf.csproj", "Usuario.Intf/"]
 COPY ["Usuario.Server/UsuarioServer.csproj", "Usuario.Server/"]
 
