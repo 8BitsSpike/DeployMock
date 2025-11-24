@@ -23,7 +23,7 @@ using System.IdentityModel.Tokens.Jwt; // Required for JwtSecurityTokenHandler
 
 var builder = WebApplication.CreateBuilder(args);
 
-var _myAllowSpecificOrigins = "_myAllowSpecificOrigins";
+var _myAllowSpecificOrigins = "https://revista-v2v5.onrender.com/";
 
 // =========================================================================
 // 1. CONFIGURAÇÃO DO MONGODB
