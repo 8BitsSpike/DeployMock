@@ -1,4 +1,4 @@
-using Artigo.API.GraphQL.DataLoaders;
+ï»¿using Artigo.API.GraphQL.DataLoaders;
 using Artigo.API.GraphQL.ErrorFilters;
 using Artigo.API.GraphQL.Inputs;
 using Artigo.API.GraphQL.Mutations;
@@ -19,16 +19,14 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using MongoDB.Driver;
-using System.IdentityModel.Tokens.Jwt; // Required for JwtSecurityTokenHandler
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-//var _myAllowSpecificOrigins = "https://revista-v2v5.onrender.com";
-
 // =========================================================================
-// 1. CONFIGURAÇÃO DO MONGODB
+// 1. CONFIGURAÃ‡ÃƒO DO MONGODB
 // =========================================================================
 
 builder.Services.AddSingleton<IMongoClient>(sp =>
@@ -47,9 +45,8 @@ builder.Services.AddSingleton<Artigo.DbContext.Interfaces.IMongoDbContext>(sp =>
 
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
-
 // =========================================================================
-// 2. INJEÇÃO DE DEPENDÊNCIA
+// 2. INJEÃ‡ÃƒO DE DEPENDÃŠNCIA
 // =========================================================================
 
 builder.Services.AddScoped<IArtigoRepository, ArtigoRepository>();
@@ -63,16 +60,15 @@ builder.Services.AddScoped<IVolumeRepository, VolumeRepository>();
 
 builder.Services.AddScoped<IArtigoService, ArtigoService>();
 
-// Classes de Backing para GraphQL
+// Queries e Mutations
 builder.Services.AddScoped<ArtigoQueries>();
 builder.Services.AddScoped<ArtigoMutation>();
 
-// Injeção do Claims Transformer
+// Claims transformer
 builder.Services.AddScoped<IClaimsTransformation, StaffClaimsTransformer>();
 
-
 // =========================================================================
-// 3. CONFIGURAÇÃO DO AUTOMAPPER
+// 3. CONFIGURAÃ‡ÃƒO DO AUTOMAPPER
 // =========================================================================
 
 builder.Services.AddAutoMapper(cfg =>
@@ -82,30 +78,27 @@ builder.Services.AddAutoMapper(cfg =>
 });
 
 // =========================================================================
-// 4. CONFIGURAÇÃO DO HOT CHOCOLATE (GRAPHQL)
+// 4. CONFIGURAÃ‡ÃƒO DO HOT CHOCOLATE (GRAPHQL)
 // =========================================================================
 
+// ðŸš€ CORS CORRIGIDO
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy(name: "Magazine",
-                      policy =>
-                      {
-                          policy.WithOrigins()
-                                .AllowAnyHeader()
-                                .AllowAnyMethod();
-                      });
+    options.AddPolicy("Magazine", policy =>
+    {
+        policy.WithOrigins("https://revista-v2v5.onrender.com")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
 });
 
 builder.Services
     .AddGraphQLServer()
     .AddQueryType<ArtigoQueryType>()
     .AddMutationType<ArtigoMutationType>()
-
-    // Filtros
     .AddErrorFilter<AuthorizationErrorFilter>()
     .AddErrorFilter<ApplicationErrorFilter>()
-
-    // Types (Inputs)
     .AddType<CreateArtigoInput>()
     .AddType<AutorInputType>()
     .AddType<MidiaEntryInputType>()
@@ -116,8 +109,6 @@ builder.Services
     .AddType<UpdateStaffInputType>()
     .AddType<UpdateVolumeMetadataInputType>()
     .AddType<MidiaEntryEntityInputType>()
-
-    // Types (Objetos de Saída)
     .AddType<ArtigoType>()
     .AddType<AutorType>()
     .AddType<ContribuicaoEditorialType>()
@@ -142,8 +133,6 @@ builder.Services
     .AddType<EditorialViewType>()
     .AddType<ArtigoHistoryEditorialViewType>()
     .AddType<StaffViewDTOType>()
-
-    // DataLoaders
     .AddDataLoader<EditorialDataLoader>()
     .AddDataLoader<VolumeDataLoader>()
     .AddDataLoader<AutorBatchDataLoader>()
@@ -153,22 +142,21 @@ builder.Services
     .AddDataLoader<InteractionRepliesDataLoader>()
     .AddDataLoader<Artigo.API.GraphQL.DataLoaders.ArticleInteractionsDataLoader>()
     .AddDataLoader<Artigo.API.GraphQL.DataLoaders.ArtigoGroupedDataLoader>()
-
     .AddMongoDbProjections()
     .AddMongoDbFiltering()
     .AddMongoDbSorting()
     .ModifyRequestOptions(opt => opt.IncludeExceptionDetails = true);
 
-
 // =========================================================================
-// 5. CONFIGURAÇÃO DE AUTENTICAÇÃO
+// 5. CONFIGURAÃ‡ÃƒO DE AUTENTICAÃ‡ÃƒO
 // =========================================================================
 
 var jwtKey = builder.Configuration["JwtConfig:Key"];
 if (string.IsNullOrEmpty(jwtKey))
 {
-    throw new InvalidOperationException("Sem configuração para a chave Jwt no appsetings. Porfavor verifique se existe o valor 'Key' no appsettings.json.");
+    throw new InvalidOperationException("Sem configuraÃ§Ã£o para a chave Jwt no appsetings.");
 }
+
 var key = Encoding.ASCII.GetBytes(jwtKey);
 
 builder.Services.AddAuthentication(options =>
@@ -177,35 +165,37 @@ builder.Services.AddAuthentication(options =>
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
 })
-    .AddJwtBearer(options =>
+.AddJwtBearer(options =>
+{
+    options.SaveToken = true;
+    options.RequireHttpsMetadata = true;
+    options.TokenValidationParameters = new TokenValidationParameters
     {
-        options.SaveToken = true;
-        options.RequireHttpsMetadata = true;
-        options.TokenValidationParameters = new TokenValidationParameters
+        ValidateIssuer = false,
+        ValidateAudience = false,
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(key),
+        ValidateLifetime = true,
+        SignatureValidator = (token, parameters) =>
         {
-            ValidateIssuer = false,
-            ValidateAudience = false,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(key),
-            ValidateLifetime = true,
-            SignatureValidator = delegate (string token, TokenValidationParameters parameters)
-            {
-                var jwt = new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(token);
-                return jwt;
-            }
-        };
-    });
+            var jwt = new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(token);
+            return jwt;
+        }
+    };
+});
 
 builder.Services.AddAuthorization();
 
 builder.Services.AddHttpContextAccessor();
+
 var app = builder.Build();
 
 // =========================================================================
 // 6. MIDDLEWARE PIPELINE
 // =========================================================================
 
-app.UseCors("magazine");
+// ðŸš€ Usa a polÃ­tica CORRETA
+app.UseCors("Magazine");
 
 app.UseAuthentication();
 app.UseAuthorization();
