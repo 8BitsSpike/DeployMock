@@ -1,11 +1,10 @@
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.IdentityModel.Tokens;
-using System.Text;
 using Artigo.API.GraphQL.DataLoaders;
 using Artigo.API.GraphQL.ErrorFilters;
+using Artigo.API.GraphQL.Inputs;
 using Artigo.API.GraphQL.Mutations;
 using Artigo.API.GraphQL.Queries;
 using Artigo.API.GraphQL.Types;
+using Artigo.API.Security;
 using Artigo.DbContext.Data;
 using Artigo.DbContext.Mappers;
 using Artigo.DbContext.Repositories;
@@ -14,12 +13,15 @@ using Artigo.Intf.Interfaces;
 using Artigo.Server.Mappers;
 using Artigo.Server.Services;
 using HotChocolate.Data.MongoDb;
-using MongoDB.Driver;
-using Artigo.API.GraphQL.Inputs;
 using Microsoft.AspNetCore.Authentication;
-using Artigo.API.Security;
-using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using MongoDB.Driver;
 using System.IdentityModel.Tokens.Jwt; // Required for JwtSecurityTokenHandler
+using System.Security.Claims;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -85,10 +87,10 @@ builder.Services.AddAutoMapper(cfg =>
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy(name: _myAllowSpecificOrigins,
+    options.AddPolicy(name: "Magazine",
                       policy =>
                       {
-                          policy.WithOrigins("http://localhost:3000")
+                          policy.WithOrigins(_myAllowSpecificOrigins)
                                 .AllowAnyHeader()
                                 .AllowAnyMethod();
                       });
@@ -155,25 +157,37 @@ builder.Services
     .AddMongoDbProjections()
     .AddMongoDbFiltering()
     .AddMongoDbSorting()
-    .ModifyRequestOptions(opt => opt.IncludeExceptionDetails = true); 
+    .ModifyRequestOptions(opt => opt.IncludeExceptionDetails = true);
 
 
 // =========================================================================
 // 5. CONFIGURAÇÃO DE AUTENTICAÇÃO
 // =========================================================================
 
-// FIX NUCLEAR: Um validador que aceita TUDO.
-// ATENÇÃO: REMOVA ISSO EM PRODUÇÃO.
-builder.Services.AddAuthentication("Bearer")
+var jwtKey = builder.Configuration["JwtConfig:Key"];
+if (string.IsNullOrEmpty(jwtKey))
+{
+    throw new InvalidOperationException("Sem configuração para a chave Jwt no appsetings. Porfavor verifique se existe o valor 'Key' no appsettings.json.");
+}
+var key = Encoding.ASCII.GetBytes(jwtKey);
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+})
     .AddJwtBearer(options =>
     {
+        options.SaveToken = true;
+        options.RequireHttpsMetadata = true;
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = false,
             ValidateAudience = false,
-            ValidateLifetime = false,
-            ValidateIssuerSigningKey = false,
-            RequireSignedTokens = false,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(key),
+            ValidateLifetime = true,
             SignatureValidator = delegate (string token, TokenValidationParameters parameters)
             {
                 var jwt = new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(token);
@@ -191,7 +205,7 @@ var app = builder.Build();
 // 6. MIDDLEWARE PIPELINE
 // =========================================================================
 
-app.UseCors(_myAllowSpecificOrigins);
+app.UseCors("magazine");
 
 app.UseAuthentication();
 app.UseAuthorization();
