@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Authentication;
 using System.Security.Claims;
 using System.Threading.Tasks;
+using System.Linq; // Necessário para .FirstOrDefault
 
 namespace Artigo.API.Security
 {
@@ -20,14 +21,17 @@ namespace Artigo.API.Security
 
         public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
         {
-            // O pipeline de autenticação já validou o token, garantindo que o 'sub' (UsuarioId) exista.
-            var userId = principal.FindFirstValue("sub");
+            // Tenta obter o ID de várias formas para garantir compatibilidade com o UsuarioAPI
+            var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier)
+                         ?? principal.FindFirstValue("sub")
+                         ?? principal.FindFirstValue("id");
 
             if (string.IsNullOrEmpty(userId))
             {
                 return principal;
             }
 
+            // Busca o Staff no banco de dados local
             var staff = await _staffRepository.GetByUsuarioIdAsync(userId);
 
             // Se o usuário for um Staff ativo, adiciona a FuncaoTrabalho como Claim de Role.
@@ -40,15 +44,17 @@ namespace Artigo.API.Security
                 }
 
                 // Remove roles antigas para evitar duplicação ou conflito
+                // (Nota: Isso é útil se o token vier com roles antigas ou incorretas)
                 var existingRoleClaims = identity.FindAll(ClaimTypes.Role).ToList();
                 foreach (var claim in existingRoleClaims)
                 {
                     identity.RemoveClaim(claim);
                 }
 
-                // Adiciona a função de trabalho como uma claim de "Role"
+                // Adiciona a função de trabalho como uma claim de "Role" (.NET padrão)
                 identity.AddClaim(new Claim(ClaimTypes.Role, staff.Job.ToString()));
 
+                // Retorna um novo Principal com a identidade atualizada
                 return new ClaimsPrincipal(identity);
             }
 
