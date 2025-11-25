@@ -1,205 +1,178 @@
-﻿using Artigo.API.GraphQL.DataLoaders;
+using Artigo.API.GraphQL.DataLoaders;
 using Artigo.API.GraphQL.ErrorFilters;
 using Artigo.API.GraphQL.Inputs;
 using Artigo.API.GraphQL.Mutations;
 using Artigo.API.GraphQL.Queries;
+using Artigo.API.GraphQL.Resolvers;
 using Artigo.API.GraphQL.Types;
 using Artigo.API.Security;
+using Artigo.DbContext.Config;
 using Artigo.DbContext.Data;
+using Artigo.DbContext.Interfaces;
 using Artigo.DbContext.Mappers;
 using Artigo.DbContext.Repositories;
-using Artigo.Intf.Enums;
 using Artigo.Intf.Interfaces;
 using Artigo.Server.Mappers;
 using Artigo.Server.Services;
-using HotChocolate.Data.MongoDb;
+using AutoMapper;
+using HotChocolate;
+using HotChocolate.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using MongoDB.Driver;
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// =========================================================================
-// 1. CONFIGURAÇÃO DO MONGODB
-// =========================================================================
+// =============================================================================
+// 1. DATA & INFRASTRUCTURE
+// =============================================================================
+
+// MongoDB
+builder.Services.Configure<MongoDBSettings>(builder.Configuration.GetSection("MongoDb"));
 
 builder.Services.AddSingleton<IMongoClient>(sp =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("MongoDb")
-        ?? "mongodb://localhost:27017/";
-    return new MongoClient(connectionString);
+    var settings = sp.GetRequiredService<IOptions<MongoDBSettings>>().Value;
+    return new MongoClient(settings.ConnectionString);
 });
 
-builder.Services.AddSingleton<Artigo.DbContext.Interfaces.IMongoDbContext>(sp =>
+builder.Services.AddScoped<Artigo.DbContext.Interfaces.IMongoDbContext>(sp =>
 {
+    var settings = sp.GetRequiredService<IOptions<MongoDBSettings>>().Value;
     var client = sp.GetRequiredService<IMongoClient>();
-    var databaseName = builder.Configuration["MongoDb:DatabaseName"] ?? "RBEB";
-    return new MongoDbContext(client, databaseName);
+    return new MongoDbContext(client, settings.DatabaseName);
 });
 
+// AutoMapper
+builder.Services.AddSingleton<IMapper>(sp =>
+{
+    var config = new MapperConfiguration(cfg =>
+    {
+        cfg.AddProfile<PersistenceMappingProfile>();
+        cfg.AddProfile<ArtigoMappingProfile>();
+    });
+    return config.CreateMapper();
+});
+
+// Repositories & UoW
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
-
-// =========================================================================
-// 2. INJEÇÃO DE DEPENDÊNCIA
-// =========================================================================
-
 builder.Services.AddScoped<IArtigoRepository, ArtigoRepository>();
-builder.Services.AddScoped<IAutorRepository, AutorRepository>();
 builder.Services.AddScoped<IEditorialRepository, EditorialRepository>();
 builder.Services.AddScoped<IArtigoHistoryRepository, ArtigoHistoryRepository>();
-builder.Services.AddScoped<IInteractionRepository, InteractionRepository>();
-builder.Services.AddScoped<IPendingRepository, PendingRepository>();
+builder.Services.AddScoped<IAutorRepository, AutorRepository>();
 builder.Services.AddScoped<IStaffRepository, StaffRepository>();
 builder.Services.AddScoped<IVolumeRepository, VolumeRepository>();
+builder.Services.AddScoped<IPendingRepository, PendingRepository>();
+builder.Services.AddScoped<IInteractionRepository, InteractionRepository>();
 
+// Services
 builder.Services.AddScoped<IArtigoService, ArtigoService>();
+builder.Services.AddHttpContextAccessor();
 
-// Queries e Mutations
-builder.Services.AddScoped<ArtigoQueries>();
-builder.Services.AddScoped<ArtigoMutation>();
+// =============================================================================
+// 2. SECURITY (AUTH & CORS)
+// =============================================================================
 
-// Claims transformer
-builder.Services.AddScoped<IClaimsTransformation, StaffClaimsTransformer>();
-
-// =========================================================================
-// 3. CONFIGURAÇÃO DO AUTOMAPPER
-// =========================================================================
-
-builder.Services.AddAutoMapper(cfg =>
+var jwtKey = builder.Configuration["Key"];
+if (string.IsNullOrEmpty(jwtKey))
 {
-    cfg.AddProfile<PersistenceMappingProfile>();
-    cfg.AddProfile<ArtigoMappingProfile>();
-});
+    // Fallback manual para garantir que n�o quebre se o appsettings falhar
+    jwtKey = "ThisIsAVeryLongAndSecureKeyForTestingPurposesThatIsAtLeast32BytesLong";
+}
+var key = Encoding.ASCII.GetBytes(jwtKey);
 
-// =========================================================================
-// 4. CONFIGURAÇÃO DO HOT CHOCOLATE (GRAPHQL)
-// =========================================================================
+builder.Services
+    .AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        options.RequireHttpsMetadata = false;
+        options.SaveToken = true;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(key),
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateLifetime = true,
+            NameClaimType = ClaimTypes.NameIdentifier
+        };
+    });
 
-// 🚀 CORS CORRIGIDO
+builder.Services.AddTransient<IClaimsTransformation, StaffClaimsTransformer>();
+builder.Services.AddAuthorization();
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("Magazine", policy =>
+    options.AddPolicy("MagazinePolicy", policy =>
     {
-        policy.WithOrigins("https://revista-v2v5.onrender.com")
+        policy.WithOrigins(
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "https://revista-v2v5.onrender.com"
+              )
               .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+              .AllowAnyMethod();
     });
 });
 
+// =============================================================================
+// 3. GRAPHQL CONFIGURATION
+// =============================================================================
+
 builder.Services
     .AddGraphQLServer()
-    .AddQueryType<ArtigoQueryType>()
-    .AddMutationType<ArtigoMutationType>()
+
     .AddErrorFilter<AuthorizationErrorFilter>()
     .AddErrorFilter<ApplicationErrorFilter>()
-    .AddType<CreateArtigoInput>()
-    .AddType<AutorInputType>()
-    .AddType<MidiaEntryInputType>()
-    .AddType<CreateStaffInput>()
-    .AddType<CreateVolumeInputType>()
-    .AddType<EditorialTeamInputType>()
-    .AddType<UpdateArtigoInput>()
-    .AddType<UpdateStaffInputType>()
-    .AddType<UpdateVolumeMetadataInputType>()
-    .AddType<MidiaEntryEntityInputType>()
-    .AddType<ArtigoType>()
-    .AddType<AutorType>()
-    .AddType<ContribuicaoEditorialType>()
-    .AddType<EditorialType>()
-    .AddType<EditorialTeamType>()
-    .AddType<ArtigoHistoryType>()
-    .AddType<StaffComentarioType>()
-    .AddType<InteractionType>()
-    .AddType<PendingType>()
-    .AddType<StaffType>()
-    .AddType<VolumeType>()
-    .AddType<ArtigoCardListType>()
-    .AddType<AutorCardType>()
-    .AddType<AutorTrabalhoDTOType>()
-    .AddType<AutorViewType>()
-    .AddType<ArtigoViewType>()
-    .AddType<InteractionConnectionDTOType>()
-    .AddType<ArtigoHistoryViewType>()
-    .AddType<VolumeCardType>()
-    .AddType<VolumeViewType>()
-    .AddType<ArtigoEditorialViewType>()
-    .AddType<EditorialViewType>()
-    .AddType<ArtigoHistoryEditorialViewType>()
-    .AddType<StaffViewDTOType>()
+    // DataLoaders
+    .AddDataLoader<ArtigoGroupedDataLoader>()
+    .AddDataLoader<AutorBatchDataLoader>()
     .AddDataLoader<EditorialDataLoader>()
     .AddDataLoader<VolumeDataLoader>()
-    .AddDataLoader<AutorBatchDataLoader>()
-    .AddDataLoader<InteractionDataLoader>()
-    .AddDataLoader<CurrentHistoryContentDataLoader>()
     .AddDataLoader<ArtigoHistoryGroupedDataLoader>()
+    .AddDataLoader<CurrentHistoryContentDataLoader>()
+    .AddDataLoader<InteractionDataLoader>()
     .AddDataLoader<InteractionRepliesDataLoader>()
-    .AddDataLoader<Artigo.API.GraphQL.DataLoaders.ArticleInteractionsDataLoader>()
-    .AddDataLoader<Artigo.API.GraphQL.DataLoaders.ArtigoGroupedDataLoader>()
-    .AddMongoDbProjections()
-    .AddMongoDbFiltering()
-    .AddMongoDbSorting()
-    .ModifyRequestOptions(opt => opt.IncludeExceptionDetails = true);
+    .AddDataLoader<ArticleInteractionsDataLoader>()
+    // Queries
+    .AddQueryType<ArtigoQueryType>()
+    // Mutations
+    .AddMutationType<ArtigoMutationType>()
+    // Types
+    .AddType<ArtigoType>()
+    .AddType<ArtigoViewType>()
+    .AddType<ArtigoCardListType>()
+    .AddType<ArtigoEditorialViewType>()
+    .AddType<VolumeType>()
+    .AddType<VolumeViewType>()
+    .AddType<AutorType>()
+    .AddType<StaffType>()
+    .AddType<InteractionType>()
+    .AddType<PendingType>();
 
-// =========================================================================
-// 5. CONFIGURAÇÃO DE AUTENTICAÇÃO
-// =========================================================================
-
-var jwtKey = builder.Configuration["JwtConfig:Key"];
-if (string.IsNullOrEmpty(jwtKey))
-{
-    throw new InvalidOperationException("Sem configuração para a chave Jwt no appsetings.");
-}
-
-var key = Encoding.ASCII.GetBytes(jwtKey);
-
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.SaveToken = true;
-    options.RequireHttpsMetadata = true;
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuer = false,
-        ValidateAudience = false,
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(key),
-        ValidateLifetime = true,
-        SignatureValidator = (token, parameters) =>
-        {
-            var jwt = new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(token);
-            return jwt;
-        }
-    };
-});
-
-builder.Services.AddAuthorization();
-
-builder.Services.AddHttpContextAccessor();
+// =============================================================================
+// 4. PIPELINE
+// =============================================================================
 
 var app = builder.Build();
 
-// =========================================================================
-// 6. MIDDLEWARE PIPELINE
-// =========================================================================
+if (app.Environment.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+}
 
-// 🚀 Usa a política CORRETA
-app.UseCors("Magazine");
-
+app.UseCors("MagazinePolicy");
 app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapGraphQL();
 
 app.Run();
