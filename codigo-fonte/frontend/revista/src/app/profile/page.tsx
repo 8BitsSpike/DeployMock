@@ -218,7 +218,7 @@ function ProfileContent() {
                                     id={art.id}
                                     title={art.titulo}
                                     excerpt={art.resumo}
-                                    href={isOwnProfile ? `/editorial/artigoEdicao/${art.id}` : `/artigo/${art.id}`}
+                                    href={isOwnProfile ? `/editorial/artigo/edicao?id=${art.id}` : `/artigo/${art.id}`}
                                     imagem={art.midiaDestaque ? { url: art.midiaDestaque.url, textoAlternativo: art.midiaDestaque.textoAlternativo } : null}
                                 />
                             ))}

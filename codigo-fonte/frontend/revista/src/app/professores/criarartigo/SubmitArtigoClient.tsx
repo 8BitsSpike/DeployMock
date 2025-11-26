@@ -10,7 +10,7 @@ import Layout from '@/components/Layout';
 import ImageAltModal from '@/components/ImageAltModal';
 import { Check, X, Trash2, Plus, UploadCloud } from 'lucide-react';
 import 'quill/dist/quill.snow.css';
-import { TipoArtigo } from '@/types/enums'; 
+import { TipoArtigo } from '@/types/enums';
 import type Quill from 'quill';
 import toast from 'react-hot-toast';
 import { USER_API_BASE } from '@/lib/fetcher';
@@ -174,6 +174,10 @@ export default function SubmitArtigoClient() {
                             </div>
                             {selectedAuthors.map(author => (
                                 <div key={author.id} className="group relative flex items-center gap-2 bg-white border border-gray-300 px-3 py-2 rounded-full cursor-pointer hover:border-red-300" onClick={() => removeAuthor(author.id)}>
+                                    <div className="w-8 h-8 relative rounded-full overflow-hidden bg-gray-200 flex-shrink-0">
+                                        {/* FIX: Image fallback */}
+                                        <Image src={author.foto || '/faviccon.png'} alt={author.name} fill className="object-cover" />
+                                    </div>
                                     <span className="text-sm font-medium text-gray-700">{author.name} {author.sobrenome}</span>
                                     <Check size={16} className="text-emerald-600" />
                                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-max bg-black/80 text-white text-xs px-2 py-1 rounded">Remover</div>

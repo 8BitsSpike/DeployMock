@@ -19,13 +19,13 @@ import CreateCommentCard from '@/components/CreateCommentCard';
 import dynamic from 'next/dynamic';
 import type { Range } from 'quill';
 
-// Editor dinâmico (SSR False)
+
 const EditorialQuillEditor = dynamic(
-  () => import('@/components/EditorialQuillEditor'),
-  { 
-    ssr: false,
-    loading: () => <div className="h-96 bg-gray-100 animate-pulse rounded-md flex items-center justify-center text-gray-400">Carregando editor...</div>
-  }
+    () => import('@/components/EditorialQuillEditor'),
+    {
+        ssr: false,
+        loading: () => <div className="h-96 bg-gray-100 animate-pulse rounded-md flex items-center justify-center text-gray-400">Carregando editor...</div>
+    }
 );
 
 const sanitizeId = (id: string) => {
@@ -37,10 +37,9 @@ const sanitizeId = (id: string) => {
     return cleaned.trim().replace(/^['"]|['"]$/g, '');
 };
 
-// --- CORREÇÃO NA INTERFACE ---
 interface EditorialTeamData {
     initialAuthorId: string[];
-    editorIds: string[]; // AGORA É ARRAY DE STRINGS
+    editorIds: string[];
     reviewerIds: string[];
     correctorIds: string[];
     __typename: "EditorialTeam";
@@ -50,8 +49,7 @@ export interface ArtigoData {
     id: string;
     titulo: string;
     resumo: string;
-    // É melhor tipar corretamente para evitar conflitos com o StaffControlBar
-    tipo: TipoArtigo; 
+    tipo: TipoArtigo;
     status: StatusArtigo;
     permitirComentario: boolean;
     editorialId: string;
@@ -91,10 +89,10 @@ const TeamHeader = ({ team, staffList }: { team: EditorialTeamData | undefined, 
     if (!team) return <div className="p-4 text-gray-500 text-sm italic">Equipe não definida</div>;
 
     const allTeamIds = [
-        ...(team.initialAuthorId || []), 
-        ...(team.reviewerIds || []), 
-        ...(team.correctorIds || []), 
-        ...(team.editorIds || []) // CORREÇÃO: Espalhando o array de editores
+        ...(team.initialAuthorId || []),
+        ...(team.reviewerIds || []),
+        ...(team.correctorIds || []),
+        ...(team.editorIds || [])
     ].filter(Boolean);
 
     const uniqueIds = Array.from(new Set(allTeamIds));
@@ -140,13 +138,14 @@ function ArtigoEditClient() {
         fetchPolicy: 'cache-and-network',
         onError: (err: ApolloError) => {
             if (err.graphQLErrors.some(e => e.extensions?.code === 'AUTH_FORBIDDEN')) {
-                localStorage.removeItem('isStaff'); logout(); router.push('/');
+                setIsStaff(false);
             }
         },
         onCompleted: (data) => {
             if (data.obterStaffList.find(s => s?.usuarioId === user?.id)?.isActive) setIsStaff(true);
         }
     });
+
     const staffList = staffData?.obterStaffList?.filter((s): s is StaffMember => !!s) ?? [];
 
     const { data, loading, refetch } = useQuery<EditorialViewData>(OBTER_ARTIGO_EDITORIAL_VIEW, {
@@ -190,8 +189,6 @@ function ArtigoEditClient() {
         const isAuthor = team.initialAuthorId?.includes(user.id);
         const isReviewer = team.reviewerIds?.includes(user.id);
         const isCorrector = team.correctorIds?.includes(user.id);
-        
-        // CORREÇÃO: Verifica se o ID do usuário está na lista de editores
         const isEditor = team.editorIds?.includes(user.id);
 
         if (isAuthor) { setUserRole('author'); return; }
@@ -227,11 +224,11 @@ function ArtigoEditClient() {
     const handleSaveAuthorChanges = () => {
         if (!artigo) return;
         const toastId = toast.loading('Salvando alterações...');
-        
+
         const midiasInput = editMidias.map(m => ({
-            midiaId: m.midiaID, 
+            midiaId: m.midiaID,
             url: m.url,
-            alt: m.alt 
+            alt: m.alt
         }));
 
         Promise.all([
@@ -258,12 +255,12 @@ function ArtigoEditClient() {
 
                 {/* Passa os dados atualizados e tipados corretamente para o StaffControlBar */}
                 {userRole === 'staff' && (
-                    <StaffControlBar 
-                        artigoId={artigo.id} 
-                        editorialId={artigo.editorialId} 
-                        currentData={artigo as ArtigoData} 
-                        staffList={staffList} 
-                        onUpdate={refetch} 
+                    <StaffControlBar
+                        artigoId={artigo.id}
+                        editorialId={artigo.editorialId}
+                        currentData={artigo as ArtigoData}
+                        staffList={staffList}
+                        onUpdate={refetch}
                     />
                 )}
 
