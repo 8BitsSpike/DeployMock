@@ -649,7 +649,7 @@ export const OBTER_ARTIGO_EDITORIAL_VIEW = gql`
 export const ATUALIZAR_CONTEUDO_ARTIGO = gql`
   # CORREÇÃO: O nome do tipo gerado pelo HotChocolate é MidiaEntryInputDTOInput!
   mutation AtualizarConteudoArtigo(
-    $artigoId: String!
+    $artigoId: artigoId!
     $newContent: String!
     $midias: [MidiaEntryInputDTOInput!]! 
     $commentary: String!
